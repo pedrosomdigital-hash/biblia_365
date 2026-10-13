@@ -1,0 +1,19 @@
+:root {
+  font-family: 'Segoe UI', Arial, sans-serif;
+  color: #28382d;
+  background: #f5f4ef;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; }
+button, input { font: inherit; }
+button, a, input, summary { -webkit-tap-highlight-color: transparent; }
+button { cursor: pointer; }
+button:disabled { opacity: .4; cursor: not-allowed; }
+button:focus-visible, a:focus-visible, input:focus-visible, summary:focus-visible { outline: 3px solid #a17b32; outline-offset: 4px; }
+button svg { flex-shrink: 0; }
+h1, h2, h3, p { margin: 0; }
+button { transition: background .15s ease; }
