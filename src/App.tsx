@@ -3,6 +3,12 @@ import "./App.css";
 import { planoLeitura } from "./data/planoLeitura";
 import { dataLocalHoje, dataValida, formatarData, formatarDataCurta } from "./data/datasPlano";
 import { BookOpen, CalendarDays, CheckCheck, ArrowRight, ChevronLeft, ChevronRight, Settings2 } from "lucide-react";
+import { onAuthStateChanged, signOut } from "firebase/auth";
+import type { User } from "firebase/auth";
+import { auth, firebaseConfigurado } from "./services/firebase";
+import { mensagemErro } from "./services/erros";
+import { useProgresso } from "./hooks/useProgresso";
+import { Acesso } from "./components/Acesso";
 import { explicarReferencia } from "./data/referencias";
 
 function ReferenciasLeitura({ referencia }: { referencia: string }) {
@@ -22,68 +28,28 @@ function ReferenciasLeitura({ referencia }: { referencia: string }) {
 }
 
 function App() {
-  const [dataInicio, setDataInicio] = useState<string>(() => {
-    try {
-      const salva = localStorage.getItem("biblia365-data-inicio");
-      return salva && dataValida(salva) ? salva : "";
-    } catch { return ""; }
-  });
-  const [dataEscolhida, setDataEscolhida] = useState(dataInicio || dataLocalHoje());
-  const [erroSalvamento, setErroSalvamento] = useState(false);
-  const dataLeitura = (numero: number) => dataInicio ? formatarData(dataInicio, numero) : "Data de início não definida";
-  const [dia, setDia] = useState<number>(() => {
-    try {
-      const diaSalvo = localStorage.getItem("biblia365-dia-atual");
-
-      if (!diaSalvo) return 1;
-
-      const numeroDia = Number(diaSalvo);
-
-      return Number.isInteger(numeroDia) &&
-        numeroDia >= 1 &&
-        numeroDia <= 365
-        ? numeroDia
-        : 1;
-    } catch {
-      return 1;
-    }
-  });
-
-  const [diasConcluidos, setDiasConcluidos] = useState<number[]>(() => {
-    try {
-      const dados = localStorage.getItem("biblia365-progresso");
-
-      if (!dados) return [];
-
-      const dias: unknown = JSON.parse(dados);
-
-      if (!Array.isArray(dias)) return [];
-
-      return [
-        ...new Set(
-          dias.filter(
-            (valor): valor is number =>
-              Number.isInteger(valor) && valor >= 1 && valor <= 365
-          )
-        ),
-      ];
-    } catch {
-      return [];
-    }
-  });
-
+  const [usuario, setUsuario] = useState<User | null | undefined>(firebaseConfigurado ? undefined : null);
+  const [erroAuth, setErroAuth] = useState("");
   useEffect(() => {
-    try {
-      localStorage.setItem("biblia365-dia-atual", String(dia));
-      localStorage.setItem("biblia365-progresso", JSON.stringify(diasConcluidos));
-      if (dataInicio) localStorage.setItem("biblia365-data-inicio", dataInicio);
-      setErroSalvamento(false);
-    } catch { setErroSalvamento(true); }
-  }, [dia, diasConcluidos, dataInicio]);
+    if (!auth) return;
+    return onAuthStateChanged(auth, (atual) => { setErroAuth(""); setUsuario(atual); }, (falha) => setErroAuth(mensagemErro(falha)));
+  }, []);
+  if (usuario === undefined) return <main className="conta-carregando" role="status"><BookOpen size={34} aria-hidden="true" /><p>{erroAuth || "Preparando sua jornada…"}</p></main>;
+  if (firebaseConfigurado && !usuario) return <Acesso />;
+  return <Painel key={usuario?.uid || "local"} usuario={usuario} />;
+}
 
+function Painel({ usuario }: { usuario: User | null }) {
+  const progresso = useProgresso(usuario);
+  const { dia, dataInicio, diasConcluidos } = progresso;
+  const [dataEscolhida, setDataEscolhida] = useState(dataInicio || dataLocalHoje());
+  const [erroConta, setErroConta] = useState("");
+  const dataLeitura = (numero: number) => dataInicio ? formatarData(dataInicio, numero) : "Data de início não definida";
   const [configuracaoAberta, setConfiguracaoAberta] = useState(false);
   const [historicoCompleto, setHistoricoCompleto] = useState(false);
   const [paginaCalendario, setPaginaCalendario] = useState(Math.floor((dia - 1) / 30));
+  useEffect(() => { setPaginaCalendario(Math.floor((dia - 1) / 30)); }, [dia]);
+  useEffect(() => { setDataEscolhida(dataInicio || dataLocalHoje()); }, [dataInicio]);
   const leituraConcluida = diasConcluidos.includes(dia);
   const percentual = Number(((diasConcluidos.length / 365) * 100).toFixed(1));
   const leituraAtual = planoLeitura.find((leitura) => leitura.dia === dia);
@@ -94,25 +60,34 @@ function App() {
   const historico = [...diasConcluidos].sort((a, b) => b - a);
 
   function abrirLeitura(numero: number) {
-    setDia(numero);
+    void progresso.selecionarDia(numero);
     setPaginaCalendario(Math.floor((numero - 1) / 30));
     document.getElementById("leitura")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   function definirInicio(inicio: string) {
     if (!dataValida(inicio)) return;
-    setDataInicio(inicio);
+    void progresso.definirDataInicio(inicio);
     setDataEscolhida(inicio);
     setConfiguracaoAberta(false);
   }
+
+  async function sair() {
+    if (!auth || progresso.salvando) return;
+    try { await signOut(auth); } catch (falha) { setErroConta(mensagemErro(falha)); }
+  }
+  if (progresso.carregando) return <main className="conta-carregando"><BookOpen size={34} aria-hidden="true" /><p role="status">Carregando suas leituras…</p>{progresso.erro && <><p className="aviso-erro" role="alert">{progresso.erro}</p><button className="botao-principal" onClick={progresso.tentarNovamente}>Tentar novamente</button><button className="botao-secundario" onClick={sair}>Sair da conta</button></>}</main>;
 
   return (
     <div className="app">
       <header className="header">
         <a className="marca" href="#painel"><span className="marca-icone"><BookOpen size={23} aria-hidden="true" /></span><span><strong>Bíblia 365</strong><small>Um ano na Palavra de Deus</small></span></a>
-        <span className="header-legenda">Seu plano, no seu ritmo</span>
+        {usuario ? <div className="conta-cabecalho"><span>{usuario.email}</span><button className="botao-secundario" onClick={sair} disabled={progresso.salvando}>Sair</button></div> : <span className="header-legenda">Seu plano, no seu ritmo</span>}
       </header>
       <main className="conteudo" id="painel">
+        <div className="sincronizacao" role="status">{progresso.erro ? "Não foi possível confirmar seu progresso. Confira o aviso abaixo." : usuario ? progresso.salvando ? "Salvando suas alterações… Mantenha esta página aberta." : progresso.cache ? "Aguardando conexão para confirmar seu progresso." : "Seu progresso está salvo na sua conta." : "Progresso salvo somente neste navegador. O login ainda não está configurado."}</div>
+        {(progresso.erro || erroConta) && <p className="aviso-erro conta-aviso" role="alert">{progresso.erro || erroConta}</p>}
+        {progresso.importavel && <section className="importar-card"><div><strong>Você já começou neste aparelho?</strong><p>Importe a data de início e as leituras salvas neste navegador para sua conta. As leituras já salvas na conta serão mantidas.</p></div><button className="botao-secundario" disabled={progresso.salvando} onClick={() => void progresso.importarLocal()}>Importar minhas leituras</button></section>}
         <section className="painel-boas-vindas">
           <div>
             <span className="etiqueta">MINHA JORNADA</span>
@@ -140,7 +115,6 @@ function App() {
             <div className="inicio-controles"><input id="data-inicio" type="date" required min="0001-01-01" max="9998-12-31" value={dataEscolhida} onChange={(evento) => setDataEscolhida(evento.target.value)} /><button className="botao-principal" type="submit">{dataInicio ? "Salvar data" : "Começar meu plano"}</button><button className="botao-secundario" type="button" onClick={() => definirInicio(dataLocalHoje())}>Começar hoje</button></div>
             <p className="inicio-nota">Alterar a data mantém as leituras concluídas. Você pode continuar no seu ritmo.</p>
           </form>}
-          {erroSalvamento && <p className="aviso-erro" role="alert">Não foi possível salvar neste navegador. Suas alterações podem ser perdidas ao fechar a página.</p>}
         </section>
 
         <div className="painel-grade">
@@ -151,7 +125,7 @@ function App() {
             <h3>O que ler na sua Bíblia</h3>
             <div className="referencia">{leituraAtual ? <ReferenciasLeitura referencia={leituraAtual.referencia} /> : "Leitura não cadastrada"}</div>
             <details className="ajuda-leitura"><summary>Como encontrar os capítulos e versículos?</summary><p>Os capítulos são as divisões maiores do livro; os versículos são os pequenos números junto ao texto. Leia o trecho completo entre o início e o fim indicados na sua Bíblia física.</p></details>
-            <button className={`btn-concluir ${leituraConcluida ? "desfazer" : ""}`} onClick={() => setDiasConcluidos((atuais) => leituraConcluida ? atuais.filter((item) => item !== dia) : [...atuais, dia].sort((a, b) => a - b))}>{leituraConcluida ? "✓ Leitura concluída · desfazer" : "Marcar leitura como concluída"}</button>
+            <button className={`btn-concluir ${leituraConcluida ? "desfazer" : ""}`} disabled={progresso.salvando} onClick={() => void progresso.alternarConcluido(dia)}>{leituraConcluida ? "✓ Leitura concluída · desfazer" : "Marcar leitura como concluída"}</button>
             <nav className="navegacao" aria-label="Navegar pelas leituras"><button onClick={() => abrirLeitura(dia - 1)} disabled={dia === 1}><ChevronLeft size={16} aria-hidden="true" />Anterior</button><button onClick={() => abrirLeitura(dia + 1)} disabled={dia === 365}>Próximo dia<ChevronRight size={16} aria-hidden="true" /></button></nav>
           </section>
 
