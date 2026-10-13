@@ -11,7 +11,10 @@ export function mensagemErro(erro: unknown): string {
     case "auth/network-request-failed":
     case "unavailable": return "Não foi possível conectar. Confira sua internet e tente novamente.";
     case "permission-denied": return "Não foi possível acessar seu progresso. Confira as regras do Firestore no projeto Firebase.";
-    case "auth/operation-not-allowed": return "O acesso por e-mail e senha ainda precisa ser ativado no Firebase.";
+    case "auth/operation-not-allowed": return "Esse método de entrada ainda precisa ser ativado no Firebase.";
+    case "auth/popup-blocked": return "O navegador bloqueou a janela do Google. Permita pop-ups para este site e tente novamente.";
+    case "auth/unauthorized-domain": return "Este endereço precisa ser adicionado aos domínios autorizados no Firebase Authentication.";
+    case "auth/account-exists-with-different-credential": return "Este e-mail já usa outro método de entrada. Entre pelo método que você usou para criar sua conta.";
     default: return "Não foi possível concluir. Tente novamente; se persistir, confira a configuração do Firebase.";
   }
 }
